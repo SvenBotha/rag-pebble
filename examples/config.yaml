@@ -1,0 +1,42 @@
+sources:
+  paths:
+    - "./examples/docs"
+  include: ["*.md", "*.txt", "*.pdf"]
+  exclude: ["**/node_modules/**", "**/.git/**"]
+
+chunking:
+  method: "recursive"
+  chunk_size: 800
+  overlap: 100
+
+embeddings:
+  provider: "openai"
+  model: "text-embedding-3-small"
+  batch_size: 64
+
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  temperature: 0.2
+  max_tokens: 800
+
+retrieval:
+  mode: "vector"
+  top_k: 5
+  similarity_threshold: 0.0
+
+storage:
+  index_path: "./data/pebble.index"
+  metadata_path: "./data/pebble.meta.sqlite"
+
+limits:
+  max_document_mb: 25
+  max_chunks_per_doc: 5000
+  concurrency: 4
+  max_tokens_per_query: 4000
+  max_embeddings_per_ingest: 50000
+
+debug:
+  show_chunks: false
+  show_scores: false
+  log_prompts: false
