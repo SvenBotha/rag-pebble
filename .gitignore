@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Virtual envs
+.venv/
+venv/
+
+# uv
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+
+# Pebble runtime data
+data/
+*.index
+*.sqlite
+*.sqlite-journal
+
+# Env / secrets
+.env
+.env.local
