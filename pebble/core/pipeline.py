@@ -10,7 +10,7 @@ similarity-threshold filtering, prompt assembly.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -72,7 +72,17 @@ class IngestPipeline:
         self._sources = sources
         self._limits = limits
 
-    async def ingest_paths(self, paths: Iterable[Path] | None = None) -> IngestResult:
+    async def ingest_paths(
+        self,
+        paths: Iterable[Path] | None = None,
+        *,
+        on_progress: Callable[[Path, int, int], None] | None = None,
+    ) -> IngestResult:
+        """Ingest the documents under `paths` (defaults to sources from config).
+
+        `on_progress`, when given, is called after each document is added
+        with `(path_just_done, total_docs_so_far, total_chunks_so_far)`.
+        """
         roots = list(paths) if paths is not None else list(self._sources.paths)
         ingested_documents = 0
         ingested_chunks = 0
@@ -108,6 +118,8 @@ class IngestPipeline:
 
                 ingested_documents += 1
                 ingested_chunks += len(chunks)
+                if on_progress is not None:
+                    on_progress(path, ingested_documents, ingested_chunks)
 
         if ingested_chunks > 0:
             self._store.persist()

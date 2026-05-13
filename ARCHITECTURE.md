@@ -123,7 +123,6 @@ artifact is one Docker image.
 | `pebble/api/`              | FastAPI app, routes, request/response models, DI. |
 | `pebble/cli/`              | Typer CLI. Sync at the edge.                      |
 | `pebble/bootstrap.py`      | `build_app(config)` — the single wiring point.    |
-| `scripts/vertical_slice.py`| Phase 0 reference. Stays as living documentation. |
 
 ---
 

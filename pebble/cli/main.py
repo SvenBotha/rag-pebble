@@ -76,7 +76,12 @@ def ingest(
 
     async def _do(services: Services) -> None:
         paths = list(path) if path else None
-        result = await services.ingest.ingest_paths(paths)
+
+        def _progress(_p: Path, docs: int, chunks: int) -> None:
+            if docs == 1 or docs % 50 == 0:
+                typer.echo(f"  ingested {docs} docs, {chunks} chunks…", err=True)
+
+        result = await services.ingest.ingest_paths(paths, on_progress=_progress)
         typer.echo(
             f"ingested {result.ingested_documents} documents "
             f"({result.ingested_chunks} chunks), {result.skipped} skipped"

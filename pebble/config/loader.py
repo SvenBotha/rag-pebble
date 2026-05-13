@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from pebble.config.schema import PebbleConfig
@@ -31,6 +32,7 @@ def load_config(path: Path | None = None) -> PebbleConfig:
     defaults — useful for tests and the vertical-slice-style first run.
     """
 
+    load_dotenv()
     raw: dict[str, object] = {}
     if path is None:
         candidate = Path.cwd() / DEFAULT_CONFIG_FILENAME
@@ -65,6 +67,4 @@ def _require_env_for_providers(config: PebbleConfig) -> None:
             needed.add(env_var)
     if needed:
         joined = ", ".join(sorted(needed))
-        raise ConfigError(
-            f"missing required env var(s) for configured providers: {joined}"
-        )
+        raise ConfigError(f"missing required env var(s) for configured providers: {joined}")

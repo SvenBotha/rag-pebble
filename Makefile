@@ -1,4 +1,5 @@
-.PHONY: sync dev run lint typecheck test all docker-build docker-run clean
+.PHONY: sync dev run lint typecheck test all docker-build docker-run clean \
+        bench-sync bench-prepare bench-run
 
 sync:
 	uv sync
@@ -33,3 +34,13 @@ docker-run:
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache
 	find . -type d -name __pycache__ -exec rm -rf {} +
+
+# --- load testing (§8 acceptance) ---
+bench-sync:
+	uv sync --group bench
+
+bench-prepare:
+	uv run --group bench python bench/prepare_corpus.py $(ARGS)
+
+bench-run:
+	uv run --group bench python bench/run_load_test.py $(ARGS)

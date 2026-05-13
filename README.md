@@ -9,7 +9,8 @@ is under 400 MB resident memory with a 50k-chunk index loaded.
 ## Status
 
 Scaffolded. Phase 0 (vertical slice) and Phases 1–2 (interfaces + full
-implementation) are complete. Phase 3 (load-test hardening) is pending.
+implementation) are complete. Phase 3 (load-test hardening) is pending; runnable
+checks and corpus prep live under [`bench/`](bench/) — see **Bench / load testing** below.
 
 ## Quickstart
 
@@ -66,10 +67,6 @@ The CLI is sync at the edge. Admin commands invoke the core directly via
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the design — query trace, locked
 decisions, module map, and MCP forward-compatibility notes.
 
-For the simplest end-to-end reference, read
-[`scripts/vertical_slice.py`](scripts/vertical_slice.py) — the ~200-line
-single-file pipeline that proves the whole system works.
-
 ## Tests
 
 ```bash
@@ -78,6 +75,51 @@ uv run ruff check .    # lint
 uv run mypy pebble     # type-check (strict)
 make all               # all three
 ```
+
+## Bench / load testing
+
+Phase 3 tooling lives under [`bench/`](bench/). It ingests a Wikipedia-derived
+corpus via the normal pipeline, runs repeated queries against OpenAI, and prints
+RSS (resident set size) plus latency stats. **Requires `OPENAI_API_KEY` in the
+environment** — same as the rest of the app. The project does not load `.env`
+automatically; export the key in your shell (or use a tool that injects it).
+
+```bash
+# Install optional bench dependencies (HuggingFace `datasets`, etc.)
+make bench-sync
+
+# Build a local corpus (default: 1000 Simple English articles → ./data/corpus)
+make bench-prepare
+
+# Custom size / dataset variant (see bench/prepare_corpus.py --help)
+make bench-prepare ARGS='--count 5000'
+make bench-prepare ARGS='--variant 20231101.en --count 2000'
+
+# Run load test: ingest corpus, run queries, report RSS vs 400 MB target
+# Default corpus: ./data/corpus, default queries: 100
+make bench-run
+
+# Override paths and query count (see bench/run_load_test.py --help)
+make bench-run ARGS='--corpus ./data/corpus --queries 50'
+```
+
+Equivalent without Make:
+
+```bash
+uv sync --group bench
+uv run --group bench python bench/prepare_corpus.py --count 1000
+uv run --group bench python bench/run_load_test.py --corpus ./data/corpus --queries 100
+```
+
+**Cost:** a large ingest plus many queries calls the embeddings and chat APIs
+repeatedly. As a rule of thumb, the script docstring cites on the order of
+**~$0.20–$0.25** for a heavy run (e.g. on the scale of ~50k chunks and 100
+queries with default-style models); scale down `--count` and `--queries` for
+cheaper smoke tests.
+
+**Progress:** `run_load_test.py` prints little or no output during **ingest**
+(it is embedding every chunk). Long pauses after “services built” usually mean
+ingestion is still running, not a hang.
 
 ## Docker
 
