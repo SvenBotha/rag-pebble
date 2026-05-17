@@ -109,13 +109,14 @@ def _make_app() -> PebbleApp:
 
 
 async def _dismiss_splash(pilot: Any) -> None:
-    """Helper: press Enter to dismiss the splash screen if it is showing."""
+    """Helper: ensure splash is dismissed, either by auto-dismiss or by pressing Enter."""
     from pebble.tui.screens.splash import SplashScreen
 
     await pilot.pause(0.05)
     if isinstance(pilot.app.screen, SplashScreen):
         await pilot.press("enter")
         await pilot.pause(0.1)
+    # Splash may have auto-dismissed — either way we're good
 
 
 @pytest.mark.asyncio
@@ -137,7 +138,6 @@ async def test_splash_dismisses_on_enter() -> None:
     async with _make_app().run_test() as pilot:
         await _dismiss_splash(pilot)
         assert not isinstance(pilot.app.screen, SplashScreen)
-        # Main UI is now visible
         assert len(pilot.app.query(StatusBar)) == 1
 
 
@@ -223,9 +223,7 @@ async def test_documents_tab_loads() -> None:
         tc.active = "documents"
         await pilot.pause(0.2)
 
-        tables = pilot.app.query(DataTable)
-        assert len(tables) >= 1
-        table = tables.first(DataTable)
+        table = pilot.app.query_one("#doc-table", DataTable)
         col_labels = [str(c.label) for c in table.columns.values()]
         assert "Source Path" in col_labels
         assert "Chunks" in col_labels
@@ -266,14 +264,180 @@ async def test_config_tab_loads() -> None:
 @pytest.mark.asyncio
 async def test_status_bar_shows_ready() -> None:
     """Status bar is present and has rendered content after a brief wait."""
+    from textual.widgets import Static
+
     from pebble.tui.widgets.status_bar import StatusBar
 
     async with _make_app().run_test() as pilot:
         await _dismiss_splash(pilot)
         await pilot.pause(0.2)
-        from textual.widgets import Static
 
         bar = pilot.app.query_one(StatusBar)
         info = bar.query_one("#status-info", Static)
         text = str(info.render())
         assert len(text) > 0
+
+
+@pytest.mark.asyncio
+async def test_ingest_tab_loads() -> None:
+    """Ingest tab shows pod selector and paths list."""
+    from textual.widgets import Select, TabbedContent
+
+    from pebble.tui.screens.ingest import IngestScreen
+
+    async with _make_app().run_test() as pilot:
+        await _dismiss_splash(pilot)
+        tc = pilot.app.query_one(TabbedContent)
+        tc.active = "ingest"
+        await pilot.pause(0.3)
+
+        # IngestScreen is present
+        assert len(pilot.app.query(IngestScreen)) == 1
+        # Pod selector is present
+        assert len(pilot.app.query(Select)) >= 1
+
+
+@pytest.mark.asyncio
+async def test_ingest_tab_has_five_tabs() -> None:
+    """App now has five tabs: Chat, Ingest, Documents, Pods, Config."""
+    from textual.widgets import TabPane
+
+    async with _make_app().run_test() as pilot:
+        await _dismiss_splash(pilot)
+        panes = pilot.app.query(TabPane)
+        assert len(panes) == 5
+        pane_ids = [p.id for p in panes]
+        for expected in ("chat", "ingest", "documents", "pods", "config"):
+            assert expected in pane_ids
+
+
+@pytest.mark.asyncio
+async def test_number_key_switches_to_ingest() -> None:
+    """Pressing '2' switches to the Ingest tab."""
+    from textual.widgets import TabbedContent
+
+    async with _make_app().run_test() as pilot:
+        await _dismiss_splash(pilot)
+        tc = pilot.app.query_one(TabbedContent)
+        assert tc.active == "chat"
+
+        await pilot.press("2")
+        await pilot.pause(0.1)
+        assert tc.active == "ingest"
+
+
+@pytest.mark.asyncio
+async def test_number_key_switches_tabs() -> None:
+    """Number keys 1-5 switch to the expected tabs."""
+    from textual.widgets import TabbedContent
+
+    tab_map = {"1": "chat", "3": "documents", "4": "pods", "5": "config"}
+
+    async with _make_app().run_test() as pilot:
+        await _dismiss_splash(pilot)
+        tc = pilot.app.query_one(TabbedContent)
+
+        for key, expected_id in tab_map.items():
+            await pilot.press(key)
+            await pilot.pause(0.05)
+            assert tc.active == expected_id, f"key {key!r} should activate tab {expected_id!r}"
+
+
+@pytest.mark.asyncio
+async def test_ingest_tab_new_pod_input_appears() -> None:
+    """Pressing 'n' in Ingest tab reveals the new pod input.
+
+    Focus must be on a widget that doesn't capture single-char keys
+    (e.g. ListView, not Select) for the shortcut to bubble up.
+    """
+    from textual.widgets import Input, ListView, TabbedContent
+
+    async with _make_app().run_test() as pilot:
+        await _dismiss_splash(pilot)
+        tc = pilot.app.query_one(TabbedContent)
+        tc.active = "ingest"
+        await pilot.pause(0.3)
+
+        # Move focus to the paths list so 'n' bubbles up to IngestScreen
+        lst = pilot.app.query_one("#paths-list", ListView)
+        lst.focus()
+        await pilot.pause(0.1)
+
+        await pilot.press("n")
+        await pilot.pause(0.1)
+
+        new_pod_input = pilot.app.query_one("#new-pod-input", Input)
+        assert "visible" in new_pod_input.classes
+
+
+@pytest.mark.asyncio
+async def test_documents_tab_has_no_ingest_key() -> None:
+    """Documents tab no longer has ingest — 'i' key does nothing harmful."""
+    from textual.widgets import TabbedContent
+
+    from pebble.tui.screens.documents import DocumentsScreen
+
+    async with _make_app().run_test() as pilot:
+        await _dismiss_splash(pilot)
+        tc = pilot.app.query_one(TabbedContent)
+        tc.active = "documents"
+        await pilot.pause(0.2)
+
+        # DocumentsScreen exists
+        assert len(pilot.app.query(DocumentsScreen)) == 1
+        # 'i' key no longer does anything (no crash)
+        await pilot.press("i")
+        await pilot.pause(0.1)
+        # Still on documents tab, no modal opened
+        assert tc.active == "documents"
+
+
+@pytest.mark.asyncio
+async def test_pods_inline_input_appears_on_n() -> None:
+    """The 'new pod' action on PodsScreen shows the inline pod name input."""
+    from textual.widgets import Static, TabbedContent
+
+    from pebble.tui.screens.pods import PodsScreen
+
+    async with _make_app().run_test() as pilot:
+        await _dismiss_splash(pilot)
+        tc = pilot.app.query_one(TabbedContent)
+        tc.active = "pods"
+        await pilot.pause(0.2)
+
+        # Trigger the action directly (DataTable captures single-char keys)
+        pods_screen = pilot.app.query_one(PodsScreen)
+        pods_screen.action_new_pod()
+        await pilot.pause(0.1)
+
+        inline = pilot.app.query_one("#pod-inline-input", Static)
+        assert "visible" in inline.classes
+
+
+@pytest.mark.asyncio
+async def test_config_f2_does_not_save() -> None:
+    """F2 no longer triggers save in Config tab (F2 belongs to Chat debug toggle)."""
+    from textual.widgets import TabbedContent
+
+    async with _make_app().run_test() as pilot:
+        await _dismiss_splash(pilot)
+        tc = pilot.app.query_one(TabbedContent)
+        tc.active = "config"
+        await pilot.pause(0.2)
+
+        # Check the config status before pressing F2
+        from textual.widgets import Static
+
+        status = pilot.app.query_one("#config-status", Static)
+        # Status should say "Config loaded" after load
+        await pilot.pause(0.1)
+        initial_text = str(status.render())
+
+        # F2 should NOT trigger save (should be a no-op or pass through)
+        await pilot.press("f2")
+        await pilot.pause(0.1)
+
+        # Status should NOT say "Saving…" or "Saved and reloaded"
+        after_text = str(status.render())
+        assert "Saving" not in after_text
+        assert "Saved" not in after_text or initial_text == after_text

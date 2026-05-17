@@ -15,6 +15,9 @@ from pebble.tui.client import PebbleClient, PebbleClientError
 _REINGEST_FIELDS = {"embeddings.model", "chunking.chunk_size", "chunking.overlap"}
 _RESTART_FIELDS = {"storage.active_pod"}
 
+# Sections to expand by default (most commonly edited)
+_EXPANDED_SECTIONS = {"embeddings", "llm", "retrieval"}
+
 # (section, field, label, widget_type, choices_if_select)
 _FIELDS: list[tuple[str, str, str, str, list[str]]] = [
     # sources
@@ -66,6 +69,7 @@ class ConfigScreen(Static):
     def __init__(self) -> None:
         super().__init__()
         self._original: dict[str, Any] = {}
+        self._dirty = False
 
     def compose(self) -> ComposeResult:
         sections: dict[str, list[tuple[str, str, str, str, list[str]]]] = {}
@@ -74,7 +78,12 @@ class ConfigScreen(Static):
             sections.setdefault(section, []).append(entry)
 
         for section, fields in sections.items():
-            with Collapsible(title=section.capitalize(), collapsed=True, id=f"sec-{section}"):
+            collapsed = section not in _EXPANDED_SECTIONS
+            with Collapsible(
+                title=section.capitalize(),
+                collapsed=collapsed,
+                id=f"sec-{section}",
+            ):
                 for _, field, label, wtype, choices in fields:
                     fid = _field_id(section, field)
                     key = f"{section}.{field}"
@@ -93,9 +102,10 @@ class ConfigScreen(Static):
                     else:
                         yield Input(value="", id=fid)
 
+        yield Static(id="config-dirty")
         yield Static(id="config-status", classes="status-line")
         yield Static(
-            "Ctrl+S = save  |  Esc = cancel",
+            "Ctrl+S = save  |  Esc = discard",
             id="config-toolbar",
             markup=False,
         )
@@ -112,6 +122,7 @@ class ConfigScreen(Static):
             return
         self._original = cfg
         self._populate(cfg)
+        self._update_dirty(False)
         self._set_status("Config loaded")
 
     def _populate(self, cfg: dict[str, Any]) -> None:
@@ -163,9 +174,28 @@ class ConfigScreen(Static):
         with contextlib.suppress(Exception):
             self.query_one("#config-status", Static).update(msg)
 
+    def _update_dirty(self, dirty: bool) -> None:
+        self._dirty = dirty
+        with contextlib.suppress(Exception):
+            dirty_widget = self.query_one("#config-dirty", Static)
+            if dirty:
+                dirty_widget.update("  ● unsaved changes")
+                dirty_widget.add_class("visible")
+            else:
+                dirty_widget.update("")
+                dirty_widget.remove_class("visible")
+
+    def on_input_changed(self, event: Input.Changed) -> None:  # noqa: ARG002
+        if not self._dirty:
+            self._update_dirty(True)
+
+    def on_select_changed(self, event: Select.Changed) -> None:  # noqa: ARG002
+        if not self._dirty:
+            self._update_dirty(True)
+
     def on_key(self, event: events.Key) -> None:
-        """s = save, Escape = cancel — fired via bubble from focused inputs."""
-        if event.key == "ctrl+s" or event.key == "f2":
+        """Ctrl+S = save, Escape = discard. F2 is NOT used here (belongs to Chat)."""
+        if event.key == "ctrl+s":
             self.run_worker(self._do_save(), name="config-save")
             event.stop()
         elif event.key == "escape":
@@ -180,6 +210,7 @@ class ConfigScreen(Static):
             await client.save_config(payload)
             await client.reload_config()
             self._set_status("Saved and reloaded")
+            self._update_dirty(False)
             cfg = await client.get_config()
             self._original = cfg
         except PebbleClientError as exc:
@@ -187,4 +218,5 @@ class ConfigScreen(Static):
 
     def _do_cancel(self) -> None:
         self._populate(self._original)
+        self._update_dirty(False)
         self._set_status("Changes discarded")

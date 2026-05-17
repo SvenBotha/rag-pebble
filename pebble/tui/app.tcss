@@ -1,18 +1,79 @@
-/* Pebble TUI — minimal CSS, use Textual's built-in theme as base */
+/* ─────────────────────────────────────────────────────────────────────────────
+   Pebble TUI — Dark/edgy terminal aesthetic
+   Theme: tokyo-night
+     background: #1A1B26   (very dark navy)
+     surface:    #24283B   (dark navy)
+     primary:    #BB9AF7   (purple)
+     secondary:  #7AA2F7   (electric blue)
+     accent:     #FF9E64   (orange — avoided in this CSS)
+     success:    varies
+     warning:    varies
+     error:      varies
+   We use $primary (purple) and $secondary (blue) as our main accent colors.
+   ───────────────────────────────────────────────────────────────────────────── */
 
-StatusBar {
-    height: 1;
-    background: $primary-darken-2;
-    color: $text;
-    padding: 0 1;
-    dock: top;
+/* ── Global ──────────────────────────────────────────────────────────────── */
+
+Screen {
+    background: $background;
 }
 
 TabbedContent {
     height: 1fr;
 }
 
-/* Chat */
+TabbedContent ContentSwitcher {
+    height: 1fr;
+}
+
+/* ── Status Bar (top dock) ───────────────────────────────────────────────── */
+
+StatusBar {
+    height: 1;
+    background: $surface-darken-1;
+    color: $text;
+    padding: 0 1;
+    dock: top;
+    layout: horizontal;
+}
+
+StatusBar #status-info {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+}
+
+StatusBar #status-hint {
+    width: auto;
+    height: 1;
+    color: $primary-darken-2;
+    text-style: dim;
+}
+
+/* ── Shared toolbar style ────────────────────────────────────────────────── */
+
+.toolbar {
+    height: 2;
+    dock: bottom;
+    layout: horizontal;
+    align: left middle;
+    padding: 0 1;
+    background: $surface;
+    border-top: solid $primary-darken-2;
+    color: $text-muted;
+}
+
+/* ── Shared status line ──────────────────────────────────────────────────── */
+
+.status-line {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+    background: $surface-darken-1;
+}
+
+/* ── Chat Screen ─────────────────────────────────────────────────────────── */
+
 ChatScreen {
     height: 1fr;
     layout: vertical;
@@ -21,45 +82,276 @@ ChatScreen {
 ChatScreen #history {
     height: 1fr;
     overflow-y: auto;
+    padding: 0 1;
 }
 
-ChatScreen #chat-input {
-    height: 3;
+ChatScreen #chat-input-wrapper {
+    height: 5;
     dock: bottom;
+    layout: vertical;
+    background: $surface;
+    border-top: solid $primary-darken-2;
+    padding: 0 1;
 }
 
 ChatScreen #chat-hint {
     height: 1;
-    dock: bottom;
     color: $text-muted;
+    padding: 0 0;
+    text-style: dim;
+}
+
+ChatScreen #chat-input {
+    height: 3;
+    border: solid $surface-lighten-2;
+    background: $surface-darken-1;
+}
+
+ChatScreen #chat-input:focus {
+    border: solid $secondary;
+}
+
+/* Chat message cards */
+
+MessageWidget {
+    margin: 1 0 0 0;
+    padding: 0;
+    height: auto;
+    border-left: solid $surface-lighten-2;
+}
+
+MessageWidget .user-query {
+    text-align: right;
+    color: $primary;
+    padding: 0 1;
+    text-style: bold;
+    background: $surface-darken-1;
+}
+
+MessageWidget .msg-timestamp {
+    color: $primary-darken-2;
+    text-style: dim;
     padding: 0 1;
 }
 
-.user-query {
-    text-align: right;
-    color: $accent;
-}
-
-.answer {
+MessageWidget .answer {
     height: auto;
-    margin: 0 0 0 2;
+    padding: 0 2;
+}
+
+MessageWidget .source-header {
+    color: $primary-darken-2;
+    padding: 0 2;
+    text-style: dim;
+}
+
+MessageWidget .source {
+    color: $text-muted;
+    padding: 0 4;
+}
+
+MessageWidget .chunk-debug {
+    color: $text-muted;
+    padding: 0 4;
+    text-style: dim;
+}
+
+MessageWidget.user-msg {
+    border-left: solid $primary;
+}
+
+MessageWidget.assistant-msg {
+    border-left: solid $secondary;
+}
+
+LoadingMessage {
+    margin: 1 0 0 0;
+    padding: 0 1;
+    color: $text-muted;
+    border-left: solid $warning;
+    height: auto;
+}
+
+LoadingMessage .thinking {
+    color: $warning;
+    text-style: italic;
+}
+
+/* ── Ingest Screen ───────────────────────────────────────────────────────── */
+
+IngestScreen {
+    height: 1fr;
+    layout: vertical;
+    padding: 1 1;
+}
+
+IngestScreen #ingest-header {
+    height: 1;
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+IngestScreen #pod-row {
+    height: 3;
+    layout: horizontal;
+    align: left middle;
+    margin-bottom: 1;
+}
+
+IngestScreen #pod-row Label {
+    width: auto;
+    padding: 0 1 0 0;
+    color: $text-muted;
+}
+
+IngestScreen #pod-select {
+    width: 30;
+    height: 3;
+}
+
+IngestScreen #new-pod-btn {
+    width: auto;
+    height: 3;
+    margin-left: 1;
+    border: solid $surface-lighten-2;
+    background: $surface;
+    color: $text;
+    padding: 0 1;
+}
+
+IngestScreen #new-pod-btn:hover {
+    border: solid $primary;
+    color: $primary;
+}
+
+IngestScreen #new-pod-input {
+    width: 30;
+    height: 3;
+    margin-left: 1;
+    border: solid $secondary;
+    display: none;
+}
+
+IngestScreen #new-pod-input.visible {
+    display: block;
+}
+
+IngestScreen #paths-label {
+    height: 1;
+    color: $text-muted;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+IngestScreen #paths-list {
+    height: 6;
+    border: solid $surface-lighten-1;
+    background: $surface-darken-1;
+    margin-bottom: 1;
+}
+
+IngestScreen #path-input-row {
+    height: 3;
+    layout: horizontal;
+    align: left middle;
+    margin-bottom: 1;
+    display: none;
+}
+
+IngestScreen #path-input-row.visible {
+    display: block;
+}
+
+IngestScreen #path-input {
+    width: 1fr;
+    height: 3;
+    border: solid $secondary;
+}
+
+IngestScreen #progress-section {
+    height: auto;
+    margin-bottom: 1;
+}
+
+IngestScreen #progress-label {
+    height: 1;
+    color: $text-muted;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+IngestProgressBar {
+    height: 4;
+    display: none;
     padding: 0;
+    layout: vertical;
 }
 
-.source {
+IngestProgressBar.active {
+    display: block;
+}
+
+IngestProgressBar ProgressBar {
+    width: 1fr;
+    height: 1;
+}
+
+IngestProgressBar #ingest-stats {
+    height: 1;
+    color: $secondary;
+    padding: 0 0;
+}
+
+IngestProgressBar #ingest-status {
+    height: 1;
     color: $text-muted;
-    margin: 0 0 0 2;
+    padding: 0 0;
 }
 
-.chunk-debug {
+IngestScreen #history-label {
+    height: 1;
     color: $text-muted;
-    margin: 0 0 0 4;
+    text-style: bold;
+    margin-bottom: 0;
 }
 
-/* Documents */
+IngestScreen #history-table {
+    height: 5;
+    border: solid $surface-lighten-1;
+    background: $surface-darken-1;
+    margin-bottom: 0;
+}
+
+IngestScreen #ingest-status-line {
+    height: 1;
+    color: $text-muted;
+    padding: 0 0;
+}
+
+IngestScreen #ingest-toolbar {
+    height: 2;
+    dock: bottom;
+    layout: horizontal;
+    align: left middle;
+    padding: 0 1;
+    background: $surface;
+    border-top: solid $primary-darken-2;
+    color: $text-muted;
+}
+
+/* ── Documents Screen ────────────────────────────────────────────────────── */
+
 DocumentsScreen {
     height: 1fr;
     layout: vertical;
+}
+
+DocumentsScreen #doc-summary {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+    background: $surface-darken-1;
 }
 
 DocumentsScreen DataTable {
@@ -67,25 +359,26 @@ DocumentsScreen DataTable {
 }
 
 DocumentsScreen #doc-toolbar {
-    height: 3;
+    height: 2;
     dock: bottom;
     layout: horizontal;
     align: left middle;
     padding: 0 1;
+    background: $surface;
+    border-top: solid $primary-darken-2;
+    color: $text-muted;
 }
 
-IngestProgressBar {
-    height: 3;
-    dock: bottom;
-    display: none;
+DocumentsScreen #doc-status {
+    height: 1;
     padding: 0 1;
+    color: $text-muted;
+    background: $surface-darken-1;
+    dock: bottom;
 }
 
-IngestProgressBar.active {
-    display: block;
-}
+/* ── Pods Screen ─────────────────────────────────────────────────────────── */
 
-/* Pods */
 PodsScreen {
     height: 1fr;
     layout: vertical;
@@ -95,30 +388,95 @@ PodsScreen DataTable {
     height: 1fr;
 }
 
-PodsScreen #pod-toolbar {
+PodsScreen #pod-inline-input {
     height: 3;
+    dock: bottom;
+    display: none;
+    layout: horizontal;
+    align: left middle;
+    padding: 0 1;
+    background: $surface-darken-1;
+    border-top: solid $secondary;
+}
+
+PodsScreen #pod-inline-input.visible {
+    display: block;
+}
+
+PodsScreen #pod-name-input {
+    width: 30;
+    height: 3;
+    border: solid $secondary;
+}
+
+PodsScreen #pod-inline-label {
+    width: auto;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+PodsScreen #pod-toolbar {
+    height: 2;
     dock: bottom;
     layout: horizontal;
     align: left middle;
     padding: 0 1;
+    background: $surface;
+    border-top: solid $primary-darken-2;
+    color: $text-muted;
 }
 
-/* Config */
+PodsScreen #pod-status {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+    background: $surface-darken-1;
+    dock: bottom;
+}
+
+/* ── Config Screen ───────────────────────────────────────────────────────── */
+
 ConfigScreen {
     height: 1fr;
     overflow-y: auto;
+    padding-bottom: 3;
 }
 
 ConfigScreen Collapsible {
     margin: 0 0 1 0;
+    border: solid $surface-lighten-1;
 }
 
 ConfigScreen #config-toolbar {
-    height: 3;
+    height: 2;
     dock: bottom;
     layout: horizontal;
     align: left middle;
     padding: 0 1;
+    background: $surface;
+    border-top: solid $primary-darken-2;
+    color: $text-muted;
+}
+
+ConfigScreen #config-status {
+    height: 1;
+    dock: bottom;
+    padding: 0 1;
+    color: $text-muted;
+    background: $surface-darken-1;
+}
+
+ConfigScreen #config-dirty {
+    height: 1;
+    dock: bottom;
+    padding: 0 1;
+    color: $warning;
+    background: $surface-darken-1;
+    display: none;
+}
+
+ConfigScreen #config-dirty.visible {
+    display: block;
 }
 
 .warning-badge {
@@ -127,4 +485,124 @@ ConfigScreen #config-toolbar {
 
 .restart-badge {
     color: $error;
+}
+
+/* ── Splash Screen ───────────────────────────────────────────────────────── */
+
+SplashScreen {
+    align: center middle;
+    background: $background 85%;
+}
+
+SplashScreen #splash-box {
+    width: auto;
+    height: auto;
+    padding: 2 4;
+    border: heavy $secondary;
+    background: $surface;
+    align: center middle;
+    layout: vertical;
+}
+
+SplashScreen #splash-logo {
+    text-align: center;
+    color: $primary;
+    text-style: bold;
+    padding: 0 0 1 0;
+}
+
+SplashScreen #splash-subtitle {
+    text-align: center;
+    color: $text-muted;
+    padding: 0 0 0 0;
+}
+
+SplashScreen #splash-version {
+    text-align: center;
+    color: $primary-darken-2;
+    text-style: dim;
+    padding: 0 0 1 0;
+}
+
+SplashScreen #splash-status {
+    text-align: center;
+    color: $warning;
+    padding: 0 0 0 0;
+}
+
+SplashScreen #splash-hint {
+    text-align: center;
+    color: $primary-darken-2;
+    text-style: dim italic;
+}
+
+/* ── Help Screen ─────────────────────────────────────────────────────────── */
+
+HelpScreen {
+    align: center middle;
+    background: $background 70%;
+}
+
+HelpScreen #help-box {
+    width: 72;
+    height: auto;
+    max-height: 90vh;
+    border: heavy $primary;
+    background: $surface;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+/* ── Confirm Modal ───────────────────────────────────────────────────────── */
+
+ConfirmScreen {
+    align: center middle;
+    background: $background 70%;
+}
+
+ConfirmScreen #confirm-box {
+    width: 50;
+    height: auto;
+    border: heavy $error;
+    background: $surface;
+    padding: 1 2;
+    layout: vertical;
+    align: center middle;
+}
+
+ConfirmScreen #confirm-message {
+    text-align: center;
+    color: $text;
+    margin-bottom: 1;
+}
+
+ConfirmScreen #confirm-keys {
+    text-align: center;
+    color: $text-muted;
+}
+
+/* ── Modal input boxes ───────────────────────────────────────────────────── */
+
+_IngestInputScreen {
+    align: center middle;
+}
+
+_IngestInputScreen #ingest-box {
+    width: 60;
+    height: 7;
+    background: $surface;
+    border: heavy $primary;
+    padding: 1 2;
+}
+
+_PodNameScreen {
+    align: center middle;
+}
+
+_PodNameScreen #pod-box {
+    width: 50;
+    height: 7;
+    background: $surface;
+    border: heavy $primary;
+    padding: 1 2;
 }

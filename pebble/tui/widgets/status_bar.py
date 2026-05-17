@@ -10,7 +10,7 @@ from textual.widgets import Static
 
 from pebble.tui.client import PebbleClient
 
-_HELP_HINT = "  ?=help  q=quit"
+_HELP_HINT = "  ?=help  1-5=tab  q=quit"
 
 
 def _fmt_uptime(seconds: float) -> str:
@@ -21,57 +21,39 @@ def _fmt_uptime(seconds: float) -> str:
     return f"{m}m"
 
 
+def _mem_estimate(chunks: int, dim: int = 1536) -> str:
+    """Rough FAISS RAM estimate: n × dim × 4 bytes."""
+    mb = (chunks * dim * 4) / (1024 * 1024)
+    if mb >= 1024:
+        return f"{mb / 1024:.1f}GB"
+    return f"{mb:.0f}MB"
+
+
 class StatusBar(Static):
     """Polls /health and /ready every 5 s; renders server state inline."""
 
-    DEFAULT_CSS = """
-    StatusBar {
-        height: 1;
-        layout: horizontal;
-        background: $primary-darken-2;
-        color: $text;
-        padding: 0 1;
-    }
-    StatusBar #status-info {
-        width: 1fr;
-        height: 1;
-    }
-    StatusBar #status-hint {
-        width: auto;
-        height: 1;
-        color: $text-muted;
-        text-style: dim;
-    }
-    """
-
     def compose(self) -> ComposeResult:
-        yield Static("", id="status-info", markup=False)
+        yield Static("", id="status-info")
         yield Static(_HELP_HINT, id="status-hint", markup=False)
 
     def on_mount(self) -> None:
         self.set_interval(5, self._refresh)
         self._refresh()
 
-    # Override update() so callers (e.g. _fetch) route text to the inner widget.
-    def update(self, content: str = "") -> None:  # type: ignore[override]
-        try:
-            self.query_one("#status-info", Static).update(content)
-        except Exception:  # noqa: BLE001
-            super().update(content)
-
     def _refresh(self) -> None:
         self.run_worker(self._fetch(), exclusive=True, name="status-refresh")
 
     async def _fetch(self) -> None:
         client: PebbleClient = self.app.client  # type: ignore[attr-defined]
+        info = self.query_one("#status-info", Static)
         try:
             health = await client.health()
             ready = await client.ready()
         except (httpx.ConnectError, httpx.TimeoutException):
-            self.update("✗ offline")  # type: ignore[arg-type]
+            info.update("[red]✗ offline[/red]")
             return
         except Exception:  # noqa: BLE001
-            self.update("? error")  # type: ignore[arg-type]
+            info.update("[yellow]? error[/yellow]")
             return
 
         uptime = health.get("uptime_seconds", 0.0)
@@ -79,12 +61,15 @@ class StatusBar(Static):
             uptime = 0.0
 
         if ready.get("ready"):
-            chunks = ready.get("index_size", 0)
-            state = "● ready"
+            chunks = int(ready.get("index_size", 0) or 0)
+            state = "[green]● ready[/green]"
         else:
             reason = ready.get("reason", "")
             chunks = 0
-            state = "⟳ loading" if "loading" in (reason or "") else "✗ not ready"
+            if "loading" in (reason or ""):
+                state = "[yellow]⟳ loading[/yellow]"
+            else:
+                state = "[red]✗ not ready[/red]"
 
         pod = "unknown"
         try:
@@ -94,4 +79,10 @@ class StatusBar(Static):
             pass
 
         n = math.floor(chunks)
-        self.update(f"pod:{pod}  {n:,} chunks  {state}  up:{_fmt_uptime(uptime)}")
+        mem = _mem_estimate(n) if n > 0 else "0MB"
+        info.update(
+            f"[bold]{pod}[/bold]  "
+            f"[dim]{n:,} chunks  ~{mem}[/dim]  "
+            f"{state}  "
+            f"[dim]up:{_fmt_uptime(uptime)}[/dim]"
+        )

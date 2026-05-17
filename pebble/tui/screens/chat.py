@@ -10,29 +10,12 @@ from textual.widgets import Input, Label, Static
 from pebble.tui.client import PebbleClient, PebbleClientError
 from pebble.tui.widgets.message import LoadingMessage, MessageWidget
 
+_HINT_NORMAL = "F2=debug  Ctrl+L=clear  Enter=send"
+_HINT_DEBUG = "F2=debug[ON]  Ctrl+L=clear  Enter=send"
+
 
 class ChatScreen(Static):
     """Main chat interface: history scroll + input box at the bottom."""
-
-    DEFAULT_CSS = """
-    ChatScreen {
-        height: 1fr;
-        layout: vertical;
-    }
-    ChatScreen #history {
-        height: 1fr;
-    }
-    ChatScreen #chat-hint {
-        height: 1;
-        color: $text-muted;
-        padding: 0 1;
-        dock: bottom;
-    }
-    ChatScreen #chat-input {
-        height: 3;
-        dock: bottom;
-    }
-    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -40,23 +23,26 @@ class ChatScreen(Static):
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="history")
-        yield Label("F2 = debug  |  Enter = send", id="chat-hint")
-        yield Input(placeholder="Type your question…", id="chat-input")
+        with Static(id="chat-input-wrapper"):
+            yield Label(_HINT_NORMAL, id="chat-hint", markup=False)
+            yield Input(placeholder="Ask anything…", id="chat-input")
 
     def on_key(self, event: events.Key) -> None:
-        """F2 toggles debug mode; Enter is handled by the Input widget directly."""
         if event.key == "f2":
             self._toggle_debug()
+            event.stop()
+        elif event.key == "ctrl+l":
+            self._clear_history()
             event.stop()
 
     def _toggle_debug(self) -> None:
         self._debug = not self._debug
-        hint = (
-            "F2 = debug [ON]  |  Enter = send"
-            if self._debug
-            else "F2 = debug  |  Enter = send"
-        )
+        hint = _HINT_DEBUG if self._debug else _HINT_NORMAL
         self.query_one("#chat-hint", Label).update(hint)
+
+    def _clear_history(self) -> None:
+        history = self.query_one("#history", VerticalScroll)
+        history.remove_children()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         query = event.value.strip()
@@ -76,10 +62,10 @@ class ChatScreen(Static):
         try:
             result = await client.query(query, debug=self._debug)
         except PebbleClientError as exc:
-            answer = f"[error] {exc.detail}"
+            answer = f"**Error:** {exc.detail}"
             chunks: list[dict] = []
         except Exception as exc:  # noqa: BLE001
-            answer = f"[error] {exc}"
+            answer = f"**Error:** {exc}"
             chunks = []
         else:
             answer = result.get("answer", "")
