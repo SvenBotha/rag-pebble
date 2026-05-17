@@ -56,3 +56,23 @@ class ReadyResponse(BaseModel):
     ready: bool
     index_size: int | None = None
     reason: str | None = None
+
+
+class PodOut(BaseModel):
+    name: str
+    chunk_count: int
+    size_mb: float
+    active: bool
+
+
+class CreatePodRequest(BaseModel):
+    name: str
+
+
+class CreatePodResponse(BaseModel):
+    name: str
+    created: bool
+
+
+class ActivatePodResponse(BaseModel):
+    message: str

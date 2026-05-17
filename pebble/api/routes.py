@@ -10,22 +10,28 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from pebble.api.deps import require_services
 from pebble.api.models import (
+    ActivatePodResponse,
     ChunkOut,
     CompactResponse,
+    CreatePodRequest,
+    CreatePodResponse,
     DeleteResponse,
     HealthResponse,
     IngestRequest,
     IngestResponse,
+    PodOut,
     QueryRequest,
     QueryResponse,
     ReadyResponse,
 )
 from pebble.bootstrap import Services
+from pebble.core.errors import StoreError
+from pebble.core.pods import create_pod, delete_pod, list_pods, write_active_pod
 
 router = APIRouter()
 
@@ -140,3 +146,74 @@ async def ready(request: Request) -> JSONResponse:
         ReadyResponse(ready=False, reason=reason).model_dump(),
         status_code=503,
     )
+
+
+# ---------------------------------------------------------------------------
+# Pods
+# ---------------------------------------------------------------------------
+
+
+@router.get("/pods", response_model=list[PodOut])
+async def list_pods_route(
+    services: Services = Depends(require_services),
+) -> list[PodOut]:
+    pods = list_pods(
+        pods_dir=services.config.storage.pods_dir,
+        active_pod=services.config.storage.active_pod,
+    )
+    return [
+        PodOut(name=p.name, chunk_count=p.chunk_count, size_mb=p.size_mb, active=p.active)
+        for p in pods
+    ]
+
+
+@router.post("/pods", response_model=CreatePodResponse, status_code=201)
+async def create_pod_route(
+    body: CreatePodRequest,
+    services: Services = Depends(require_services),
+) -> CreatePodResponse:
+    try:
+        create_pod(pods_dir=services.config.storage.pods_dir, name=body.name)
+    except StoreError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return CreatePodResponse(name=body.name, created=True)
+
+
+@router.delete("/pods/{name}", response_model=DeleteResponse)
+async def delete_pod_route(
+    name: str,
+    services: Services = Depends(require_services),
+) -> DeleteResponse:
+    if name == services.config.storage.active_pod:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"cannot delete the active pod {name!r}; switch to another pod first",
+        )
+    try:
+        delete_pod(pods_dir=services.config.storage.pods_dir, name=name)
+    except StoreError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return DeleteResponse(deleted_chunks=0)
+
+
+@router.post("/pods/{name}/activate", response_model=ActivatePodResponse, status_code=202)
+async def activate_pod_route(
+    name: str,
+    request: Request,
+    services: Services = Depends(require_services),
+) -> ActivatePodResponse:
+    pods_dir = services.config.storage.pods_dir
+    pod_dir = pods_dir / name
+    if not pod_dir.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"pod {name!r} does not exist",
+        )
+    config_path: Path | None = getattr(request.app.state, "config_path", None)
+    write_active_pod(config_path, name)
+    msg = f"active_pod set to {name!r}"
+    if config_path is not None:
+        msg += f"; restart the server for the change to take effect (config: {config_path})"
+    else:
+        msg += "; no config.yaml found on disk — set storage.active_pod manually and restart"
+    return ActivatePodResponse(message=msg)

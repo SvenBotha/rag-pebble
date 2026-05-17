@@ -24,8 +24,9 @@ import typer
 from pebble.api.models import ChunkOut, QueryRequest
 from pebble.bootstrap import Services, build_services
 from pebble.config.loader import load_config
-from pebble.core.errors import PebbleError
+from pebble.core.errors import PebbleError, StoreError
 from pebble.core.interfaces import Chunk, RetrievedChunk
+from pebble.core.pods import create_pod, delete_pod, list_pods, write_active_pod
 from pebble.core.prompts import SYSTEM_PROMPT, assemble_user_message
 
 DEFAULT_API_URL = "http://localhost:8000"
@@ -42,8 +43,12 @@ def _api_url(override: str | None) -> str:
     return override or os.environ.get("PEBBLE_API_URL", DEFAULT_API_URL)
 
 
-def _load_services(config_path: Path | None) -> Services:
+def _load_services(config_path: Path | None, pod: str | None = None) -> Services:
     config = load_config(config_path)
+    if pod is not None:
+        config = config.model_copy(
+            update={"storage": config.storage.model_copy(update={"active_pod": pod})}
+        )
     return build_services(config)
 
 
@@ -71,6 +76,7 @@ def ingest(
         help="One or more paths to ingest. If omitted, uses sources.paths from config.",
     ),
     config: Path | None = typer.Option(None, "--config", help="Path to config.yaml."),
+    pod: str | None = typer.Option(None, "--pod", help="Override active pod for this invocation."),
 ) -> None:
     """Ingest documents. Calls core directly — no running server needed."""
 
@@ -87,9 +93,8 @@ def ingest(
             f"({result.ingested_chunks} chunks), {result.skipped} skipped"
         )
 
-    # _run_admin uses config from cwd; pass the override here.
     async def _wrapped() -> None:
-        services = _load_services(config)
+        services = _load_services(config, pod=pod)
         try:
             await _do(services)
         finally:
@@ -106,11 +111,12 @@ def ingest(
 def delete(
     doc_id: str = typer.Argument(..., help="Document ID to soft-delete."),
     config: Path | None = typer.Option(None, "--config"),
+    pod: str | None = typer.Option(None, "--pod", help="Override active pod for this invocation."),
 ) -> None:
     """Soft-delete all chunks for a document. Calls core directly."""
 
     async def _wrapped() -> None:
-        services = _load_services(config)
+        services = _load_services(config, pod=pod)
         try:
             deleted = services.query.delete_document(doc_id)
             typer.echo(f"soft-deleted {deleted} chunks for doc_id={doc_id}")
@@ -127,11 +133,12 @@ def delete(
 @app.command()
 def compact(
     config: Path | None = typer.Option(None, "--config"),
+    pod: str | None = typer.Option(None, "--pod", help="Override active pod for this invocation."),
 ) -> None:
     """Rebuild the FAISS index from live chunks. Calls core directly."""
 
     async def _wrapped() -> None:
-        services = _load_services(config)
+        services = _load_services(config, pod=pod)
         try:
             result = services.query.compact()
             typer.echo(
@@ -238,6 +245,117 @@ def _print_debug(query: str, chunks: list[dict[str, Any]]) -> None:
     typer.echo(SYSTEM_PROMPT)
     typer.echo("\n[debug] assembled user message:")
     typer.echo(assembled)
+
+
+pods_app = typer.Typer(no_args_is_help=True, help="Manage named pod stores.")
+app.add_typer(pods_app, name="pods")
+
+
+def _pods_dir_and_active(config_path: Path | None) -> tuple[Path, str]:
+    config = load_config(config_path)
+    return config.storage.pods_dir, config.storage.active_pod
+
+
+@pods_app.command("list")
+def pods_list(
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """List all pods with chunk count, size on disk, and active marker."""
+    try:
+        pods_dir, active_pod = _pods_dir_and_active(config)
+        pods = list_pods(pods_dir, active_pod)
+    except PebbleError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    if not pods:
+        typer.echo("no pods found")
+        return
+
+    header = f"{'NAME':<30}  {'CHUNKS':>8}  {'SIZE MB':>8}  ACTIVE"
+    typer.echo(header)
+    typer.echo("-" * len(header))
+    for p in pods:
+        active_marker = "*" if p.active else ""
+        typer.echo(f"{p.name:<30}  {p.chunk_count:>8}  {p.size_mb:>8.3f}  {active_marker}")
+
+
+@pods_app.command("create")
+def pods_create(
+    name: str = typer.Argument(..., help="Name for the new pod."),
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Create a new empty pod directory."""
+    try:
+        pods_dir, _ = _pods_dir_and_active(config)
+        create_pod(pods_dir, name)
+    except (PebbleError, StoreError) as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+    typer.echo(f"created pod {name!r}")
+
+
+@pods_app.command("delete")
+def pods_delete(
+    name: str = typer.Argument(..., help="Name of the pod to delete."),
+    config: Path | None = typer.Option(None, "--config"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+) -> None:
+    """Delete a pod directory and all its data."""
+    try:
+        pods_dir, active_pod = _pods_dir_and_active(config)
+    except PebbleError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    if name == active_pod:
+        typer.echo(f"error: cannot delete the active pod {name!r}; switch first", err=True)
+        raise typer.Exit(code=1)
+
+    if not yes:
+        confirmed = typer.confirm(f"Delete pod {name!r} and all its data?")
+        if not confirmed:
+            typer.echo("aborted")
+            raise typer.Exit()
+
+    try:
+        delete_pod(pods_dir, name)
+    except StoreError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+    typer.echo(f"deleted pod {name!r}")
+
+
+@pods_app.command("switch")
+def pods_switch(
+    name: str = typer.Argument(..., help="Name of the pod to activate."),
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Set the active pod in config.yaml. Requires a server restart to take effect."""
+    config_path = config
+    if config_path is None:
+        candidate = Path.cwd() / "config.yaml"
+        if candidate.is_file():
+            config_path = candidate
+
+    try:
+        pods_dir, _ = _pods_dir_and_active(config)
+        pod_dir = pods_dir / name
+        if not pod_dir.exists():
+            typer.echo(f"error: pod {name!r} does not exist", err=True)
+            raise typer.Exit(code=1)
+        write_active_pod(config_path, name)
+    except (PebbleError, StoreError) as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    if config_path is not None:
+        typer.echo(f"active_pod set to {name!r} in {config_path}")
+        typer.echo("restart the server for the change to take effect")
+    else:
+        typer.echo(
+            f"no config.yaml found in cwd; set storage.active_pod: {name!r} manually and restart"
+        )
 
 
 def main() -> None:

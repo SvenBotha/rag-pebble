@@ -70,6 +70,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ready = False
     app.state.ready_error = None
 
+    config_path: Path | None = None
+    candidate = Path.cwd() / "config.yaml"
+    if candidate.is_file():
+        config_path = candidate
+    app.state.config_path = config_path
+
     config = load_config()
 
     async def _build() -> None:

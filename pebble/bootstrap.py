@@ -53,8 +53,8 @@ def build_services(config: PebbleConfig) -> Services:
     llm = _build_llm(config, http_client)
 
     store = FaissSqliteStore(
-        index_path=config.storage.index_path,
-        metadata_path=config.storage.metadata_path,
+        index_path=config.storage.resolved_index_path,
+        metadata_path=config.storage.resolved_metadata_path,
         dim=embedder.dim,
     )
     store.load()

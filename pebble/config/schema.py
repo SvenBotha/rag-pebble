@@ -52,8 +52,28 @@ class RetrievalConfig(BaseModel):
 
 
 class StorageConfig(BaseModel):
-    index_path: Path = Path("./data/pebble.index")
-    metadata_path: Path = Path("./data/pebble.meta.sqlite")
+    pods_dir: Path = Path("./data/pods")
+    active_pod: str = "default"
+    # Deprecated — kept for backward compat with pre-pod config.yaml files.
+    # When set, these take precedence over pod-based path resolution.
+    index_path: Path | None = None
+    metadata_path: Path | None = None
+
+    @property
+    def pod_dir(self) -> Path:
+        return self.pods_dir / self.active_pod
+
+    @property
+    def resolved_index_path(self) -> Path:
+        if self.index_path is not None:
+            return self.index_path
+        return self.pod_dir / "pebble.index"
+
+    @property
+    def resolved_metadata_path(self) -> Path:
+        if self.metadata_path is not None:
+            return self.metadata_path
+        return self.pod_dir / "pebble.meta.sqlite"
 
 
 class LimitsConfig(BaseModel):

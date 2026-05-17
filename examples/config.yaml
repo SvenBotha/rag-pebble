@@ -26,8 +26,8 @@ retrieval:
   similarity_threshold: 0.0
 
 storage:
-  index_path: "./data/pebble.index"
-  metadata_path: "./data/pebble.meta.sqlite"
+  pods_dir: "./data/pods"
+  active_pod: "default"
 
 limits:
   max_document_mb: 25
