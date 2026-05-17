@@ -1,0 +1,3 @@
+storage:
+  active_pod: v2
+  pods_dir: ./data/pods

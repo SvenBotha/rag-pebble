@@ -248,6 +248,16 @@ def _print_debug(query: str, chunks: list[dict[str, Any]]) -> None:
     typer.echo(assembled)
 
 
+@app.command()
+def tui(
+    api_url: str | None = typer.Option(None, "--api-url", help="Pebble API URL."),
+) -> None:
+    """Launch the interactive TUI."""
+    from pebble.tui.app import PebbleApp
+
+    PebbleApp(api_url=_api_url(api_url)).run()
+
+
 pods_app = typer.Typer(no_args_is_help=True, help="Manage named pod stores.")
 app.add_typer(pods_app, name="pods")
 

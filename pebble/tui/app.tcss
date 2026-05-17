@@ -1,0 +1,130 @@
+/* Pebble TUI — minimal CSS, use Textual's built-in theme as base */
+
+StatusBar {
+    height: 1;
+    background: $primary-darken-2;
+    color: $text;
+    padding: 0 1;
+    dock: top;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+/* Chat */
+ChatScreen {
+    height: 1fr;
+    layout: vertical;
+}
+
+ChatScreen #history {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+ChatScreen #chat-input {
+    height: 3;
+    dock: bottom;
+}
+
+ChatScreen #chat-hint {
+    height: 1;
+    dock: bottom;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+.user-query {
+    text-align: right;
+    color: $accent;
+}
+
+.answer {
+    height: auto;
+    margin: 0 0 0 2;
+    padding: 0;
+}
+
+.source {
+    color: $text-muted;
+    margin: 0 0 0 2;
+}
+
+.chunk-debug {
+    color: $text-muted;
+    margin: 0 0 0 4;
+}
+
+/* Documents */
+DocumentsScreen {
+    height: 1fr;
+    layout: vertical;
+}
+
+DocumentsScreen DataTable {
+    height: 1fr;
+}
+
+DocumentsScreen #doc-toolbar {
+    height: 3;
+    dock: bottom;
+    layout: horizontal;
+    align: left middle;
+    padding: 0 1;
+}
+
+IngestProgressBar {
+    height: 3;
+    dock: bottom;
+    display: none;
+    padding: 0 1;
+}
+
+IngestProgressBar.active {
+    display: block;
+}
+
+/* Pods */
+PodsScreen {
+    height: 1fr;
+    layout: vertical;
+}
+
+PodsScreen DataTable {
+    height: 1fr;
+}
+
+PodsScreen #pod-toolbar {
+    height: 3;
+    dock: bottom;
+    layout: horizontal;
+    align: left middle;
+    padding: 0 1;
+}
+
+/* Config */
+ConfigScreen {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+ConfigScreen Collapsible {
+    margin: 0 0 1 0;
+}
+
+ConfigScreen #config-toolbar {
+    height: 3;
+    dock: bottom;
+    layout: horizontal;
+    align: left middle;
+    padding: 0 1;
+}
+
+.warning-badge {
+    color: $warning;
+}
+
+.restart-badge {
+    color: $error;
+}

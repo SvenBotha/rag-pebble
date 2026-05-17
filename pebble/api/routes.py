@@ -7,20 +7,27 @@ lives here.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from pathlib import Path
+from typing import Any
 
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from pebble.api.deps import require_services
 from pebble.api.models import (
     ActivatePodResponse,
     ChunkOut,
     CompactResponse,
+    ConfigResponse,
     CreatePodRequest,
     CreatePodResponse,
     DeleteResponse,
+    DocumentInfoOut,
+    DocumentsResponse,
     HealthResponse,
     IngestRequest,
     IngestResponse,
@@ -28,9 +35,12 @@ from pebble.api.models import (
     QueryRequest,
     QueryResponse,
     ReadyResponse,
+    ReloadResponse,
 )
-from pebble.bootstrap import Services
-from pebble.core.errors import StoreError
+from pebble.bootstrap import Services, build_services
+from pebble.config.loader import load_config
+from pebble.config.schema import PebbleConfig
+from pebble.core.errors import ConfigError, StoreError
 from pebble.core.pods import create_pod, delete_pod, list_pods, write_active_pod
 
 router = APIRouter()
@@ -60,15 +70,100 @@ async def query(
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(
     body: IngestRequest,
+    request: Request,
     services: Services = Depends(require_services),
 ) -> IngestResponse:
+    if getattr(request.app.state, "ingest_active", False):
+        raise HTTPException(status_code=409, detail="ingest already in progress")
+
+    request.app.state.ingest_active = True
+    start = time.time()
+
+    def on_progress(path: Path, docs: int, chunks: int) -> None:
+        q: asyncio.Queue[dict[str, Any]] | None = getattr(
+            request.app.state, "ingest_queue", None
+        )
+        if q is not None:
+            q.put_nowait(
+                {
+                    "type": "progress",
+                    "docs": docs,
+                    "chunks": chunks,
+                    "elapsed_s": round(time.time() - start, 1),
+                }
+            )
+
     paths = [Path(p) for p in body.paths] if body.paths else None
-    result = await services.ingest.ingest_paths(paths)
+    try:
+        result = await services.ingest.ingest_paths(paths, on_progress=on_progress)
+        q = getattr(request.app.state, "ingest_queue", None)
+        if q is not None:
+            q.put_nowait(
+                {
+                    "type": "complete",
+                    "ingested_documents": result.ingested_documents,
+                    "ingested_chunks": result.ingested_chunks,
+                    "skipped": result.skipped,
+                }
+            )
+    except Exception as exc:
+        q = getattr(request.app.state, "ingest_queue", None)
+        if q is not None:
+            q.put_nowait({"type": "error", "message": str(exc)})
+        raise
+    finally:
+        request.app.state.ingest_active = False
+
     return IngestResponse(
         ingested_documents=result.ingested_documents,
         ingested_chunks=result.ingested_chunks,
         skipped=result.skipped,
         already_ingested=result.already_ingested,
+    )
+
+
+@router.get("/ingest/stream")
+async def ingest_stream(request: Request) -> StreamingResponse:
+    """SSE stream of ingest progress events.
+
+    The endpoint creates the queue and stores it on app.state so that the
+    POST /ingest handler can write events into it. Connect before triggering
+    POST /ingest to capture all events.
+    """
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    request.app.state.ingest_queue = queue
+
+    async def generate() -> Any:
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=300.0)
+            except TimeoutError:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'stream timeout'})}\n\n"
+                return
+            yield f"data: {json.dumps(event)}\n\n"
+            if event["type"] in ("complete", "error"):
+                request.app.state.ingest_queue = None
+                return
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.get("/documents", response_model=DocumentsResponse)
+async def list_documents(
+    services: Services = Depends(require_services),
+) -> DocumentsResponse:
+    docs = services.store.list_documents()
+    return DocumentsResponse(
+        documents=[
+            DocumentInfoOut(
+                doc_id=d.doc_id,
+                source_path=d.source_path,
+                chunk_count=d.chunk_count,
+                created_at=d.created_at,
+            )
+            for d in docs
+        ],
+        total=len(docs),
     )
 
 
@@ -91,6 +186,71 @@ async def compact(
         after=result.after,
         elapsed_seconds=result.elapsed_seconds,
     )
+
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+
+@router.get("/config", response_model=ConfigResponse)
+async def get_config(
+    services: Services = Depends(require_services),
+) -> ConfigResponse:
+    return ConfigResponse(config=services.config.model_dump(mode="json"))
+
+
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge `overlay` into a copy of `base`."""
+    result = dict(base)
+    for key, value in overlay.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+@router.post("/config", response_model=ConfigResponse)
+async def save_config(
+    body: dict[str, Any],
+    request: Request,
+    services: Services = Depends(require_services),
+) -> ConfigResponse:
+    config_path: Path | None = getattr(request.app.state, "config_path", None)
+
+    existing: dict[str, Any] = services.config.model_dump(mode="json")
+    merged = _deep_merge(existing, body)
+
+    try:
+        validated = PebbleConfig.model_validate(merged)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    write_path = config_path if config_path is not None else Path.cwd() / "config.yaml"
+    try:
+        write_path.write_text(yaml.dump(merged, default_flow_style=False), encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"failed to write config: {exc}") from exc
+
+    if config_path is None:
+        request.app.state.config_path = write_path
+
+    return ConfigResponse(config=validated.model_dump(mode="json"))
+
+
+@router.post("/admin/reload", response_model=ReloadResponse)
+async def reload_config(
+    request: Request,
+    services: Services = Depends(require_services),
+) -> ReloadResponse:
+    config_path: Path | None = getattr(request.app.state, "config_path", None)
+    config = load_config(config_path)
+    new_services = await asyncio.to_thread(build_services, config)
+    old_services = request.app.state.services
+    request.app.state.services = new_services
+    await old_services.aclose()
+    return ReloadResponse(reloaded=True)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -211,6 +371,12 @@ async def activate_pod_route(
             detail=f"pod {name!r} does not exist",
         )
     config_path: Path | None = getattr(request.app.state, "config_path", None)
+    # Fall back to a live lookup in case config.yaml was created after server start.
+    if config_path is None:
+        candidate = Path.cwd() / "config.yaml"
+        if candidate.is_file():
+            config_path = candidate
+            request.app.state.config_path = config_path
     write_active_pod(config_path, name)
     msg = f"active_pod set to {name!r}"
     if config_path is not None:

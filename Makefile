@@ -1,4 +1,4 @@
-.PHONY: sync dev run lint typecheck test all docker-build docker-run clean \
+.PHONY: sync dev run tui ingest lint typecheck test all docker-build docker-run clean \
         bench-sync bench-prepare bench-run
 
 sync:
@@ -9,6 +9,12 @@ dev:
 
 run:
 	uv run uvicorn pebble.api.app:app --host 0.0.0.0 --port 8000
+
+tui:
+	uv run pebble tui $(ARGS)
+
+ingest:
+	uv run pebble ingest $(ARGS)
 
 lint:
 	uv run ruff check pebble tests

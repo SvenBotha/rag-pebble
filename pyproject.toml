@@ -19,6 +19,7 @@ dependencies = [
     "typer>=0.12.0",
     "pypdf>=4.0.0",
     "python-dotenv>=1.0.0",
+    "textual>=8.0",
 ]
 
 [dependency-groups]
@@ -63,6 +64,19 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = ["faiss", "faiss.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["textual", "textual.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Textual's generic APIs (DataTable, push_screen, ModalScreen) lack complete
+# stubs; relax strict checks for the TUI package only.
+module = ["pebble.tui.*"]
+disallow_any_generics = false
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

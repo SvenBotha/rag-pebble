@@ -23,7 +23,7 @@ import faiss
 import numpy as np
 
 from pebble.core.errors import StoreError
-from pebble.core.interfaces import Chunk, RetrievedChunk
+from pebble.core.interfaces import Chunk, DocumentInfo, RetrievedChunk
 
 _OVERFETCH_MULTIPLIER = 2
 _OVERFETCH_FLOOR = 5
@@ -221,6 +221,27 @@ class FaissSqliteStore:
             if len(results) >= top_k:
                 break
         return results
+
+    # ------------------------------------------------------------------ list
+
+    def list_documents(self) -> list[DocumentInfo]:
+        conn = self._require_conn()
+        with self._lock:
+            cur = conn.execute(
+                "SELECT doc_id, source_path, COUNT(*) AS chunk_count, "
+                "MIN(created_at) AS created_at "
+                "FROM chunks WHERE deleted = 0 "
+                "GROUP BY doc_id ORDER BY MIN(created_at) DESC"
+            )
+            return [
+                DocumentInfo(
+                    doc_id=row[0],
+                    source_path=row[1],
+                    chunk_count=row[2],
+                    created_at=row[3],
+                )
+                for row in cur.fetchall()
+            ]
 
     # ------------------------------------------------------------------ compact
 

@@ -4,7 +4,7 @@ To-do items focused only on **improving what gets retrieved** into the prompt (n
 
 - [ ] **Prompt Upgrading** - Update the prompt to allow for better reasoning for broader questions.
 
-- [ ] **Corpus alignment** — Ingest documents that cover the domains and intents you actually want to answer (breadth beats clever retrieval alone).
+-1` [ ] **Corpus alignment** — Ingest documents that cover the domains and intents you actually want to answer (breadth beats clever retrieval alone).
 - [ ] **Document preprocessing** — Strip repeated headers, footers, nav menus, and PDF extraction artifacts before chunking. Each chunk goes into the index verbatim; junk in the source means junk retrieved.
 - [ ] **Chunking** — Tune `chunk_size`, `overlap`, and chunking strategy so each chunk carries a coherent unit that matches typical questions (`config.yaml` → `chunking`). The current recursive character splitter is a solid baseline; consider a sentence-aware or markdown-header-aware strategy once you have retrieval quality data.
 - [ ] **Contextual chunk enrichment** — Prepend the document title or source path to each chunk's text *before* embedding (e.g. `"Source: refunds.md\n{chunk_text}"`). Cheap one-line change in the chunker; significantly helps when the chunk text is ambiguous without context.

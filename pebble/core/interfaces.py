@@ -63,6 +63,16 @@ class RetrievedChunk:
     score: float
 
 
+@dataclass(frozen=True, slots=True)
+class DocumentInfo:
+    """Summary of a document as stored in the vector store."""
+
+    doc_id: str
+    source_path: str
+    chunk_count: int
+    created_at: str
+
+
 # ---------------------------------------------------------------------------
 # Ingestion
 # ---------------------------------------------------------------------------
@@ -179,6 +189,10 @@ class VectorStore(Protocol):
 
     def compact(self) -> None:
         """Rebuild the FAISS index from live (non-tombstoned) rows."""
+        ...
+
+    def list_documents(self) -> list[DocumentInfo]:
+        """Return one summary row per live document, ordered by earliest created_at."""
         ...
 
     def persist(self) -> None: ...

@@ -81,6 +81,9 @@ def test_app(tmp_path: Path, stub_embedder: StubEmbedder, stub_llm: StubLLM) -> 
     app.state.services = _build_services(tmp_path, stub_embedder, stub_llm)
     app.state.ready = True
     app.state.ready_error = None
+    app.state.ingest_active = False
+    app.state.ingest_queue = None
+    app.state.config_path = None
     return app
 
 
@@ -315,3 +318,145 @@ def test_query_budget_returns_402(tmp_path: Path, stub_embedder, stub_llm):
         r = c.post("/query", json={"query": "what is the answer?"})
     assert r.status_code == 402
     assert r.json()["error"] == "budget_exceeded"
+
+
+# ---------------------------------------------------------------------------
+# GET /documents
+# ---------------------------------------------------------------------------
+
+
+def test_list_documents_empty(client: TestClient) -> None:
+    r = client.get("/documents")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["documents"] == []
+    assert body["total"] == 0
+
+
+def test_list_documents_after_ingest(client: TestClient, tmp_path: Path) -> None:
+    src = tmp_path / "hello.md"
+    src.write_text("hello world. " * 20)
+    client.post("/ingest", json={"paths": [str(tmp_path)]})
+
+    r = client.get("/documents")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    doc = body["documents"][0]
+    assert doc["source_path"] == str(src)
+    assert doc["chunk_count"] >= 1
+    assert "created_at" in doc
+
+
+# ---------------------------------------------------------------------------
+# GET /config + POST /config
+# ---------------------------------------------------------------------------
+
+
+def test_get_config(client: TestClient) -> None:
+    r = client.get("/config")
+    assert r.status_code == 200
+    cfg = r.json()["config"]
+    assert "llm" in cfg
+    assert "retrieval" in cfg
+    assert "embeddings" in cfg
+
+
+def test_post_config_updates_field(
+    test_app: FastAPI, tmp_path: Path, client: TestClient
+) -> None:
+    config_yaml = tmp_path / "config.yaml"
+    import yaml as _yaml
+
+    config_yaml.write_text(_yaml.dump({"llm": {"model": "gpt-4o-mini"}}), encoding="utf-8")
+    test_app.state.config_path = config_yaml
+
+    r = client.post("/config", json={"llm": {"model": "gpt-4o"}})
+    assert r.status_code == 200
+    assert r.json()["config"]["llm"]["model"] == "gpt-4o"
+
+    saved = _yaml.safe_load(config_yaml.read_text())
+    assert saved["llm"]["model"] == "gpt-4o"
+
+
+def test_post_config_rejects_invalid(client: TestClient) -> None:
+    r = client.post("/config", json={"retrieval": {"top_k": -1}})
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/reload
+# ---------------------------------------------------------------------------
+
+
+def test_admin_reload(
+    test_app: FastAPI, tmp_path: Path, stub_embedder: StubEmbedder, stub_llm: StubLLM
+) -> None:
+    import os
+
+    import yaml as _yaml
+
+    os.environ.setdefault("OPENAI_API_KEY", "sk-test")
+
+    config_yaml = tmp_path / "config.yaml"
+    config_yaml.write_text(
+        _yaml.dump({"storage": {"pods_dir": str(tmp_path / "pods"), "active_pod": "default"}}),
+        encoding="utf-8",
+    )
+    test_app.state.config_path = config_yaml
+
+    with TestClient(test_app) as c:
+        r = c.post("/admin/reload")
+    assert r.status_code == 200
+    assert r.json()["reloaded"] is True
+
+
+# ---------------------------------------------------------------------------
+# GET /ingest/stream (SSE)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ingest_stream_events(test_app: FastAPI, tmp_path: Path) -> None:
+    import asyncio
+    import json as _json
+
+    import httpx
+
+    src = tmp_path / "stream_test.md"
+    src.write_text("foo bar baz. " * 30)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=test_app),
+        base_url="http://test",
+    ) as ac:
+
+        async def consume_stream() -> list[dict]:
+            events: list[dict] = []
+            async with ac.stream("GET", "/ingest/stream") as stream_resp:
+                async for line in stream_resp.aiter_lines():
+                    if line.startswith("data:"):
+                        events.append(_json.loads(line[5:].strip()))
+                        if events[-1]["type"] in ("complete", "error"):
+                            break
+            return events
+
+        stream_task = asyncio.create_task(consume_stream())
+        # Yield control so the SSE endpoint can run and create the queue.
+        await asyncio.sleep(0.05)
+
+        ingest_resp = await ac.post("/ingest", json={"paths": [str(tmp_path)]})
+        assert ingest_resp.status_code == 200
+
+        events = await stream_task
+
+    types = [e["type"] for e in events]
+    assert "complete" in types
+
+
+def test_ingest_409_when_active(test_app: FastAPI, tmp_path: Path) -> None:
+    test_app.state.ingest_active = True
+    with TestClient(test_app) as c:
+        r = c.post("/ingest", json={"paths": [str(tmp_path)]})
+    assert r.status_code == 409
+    test_app.state.ingest_active = False

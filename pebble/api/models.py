@@ -77,3 +77,23 @@ class CreatePodResponse(BaseModel):
 
 class ActivatePodResponse(BaseModel):
     message: str
+
+
+class DocumentInfoOut(BaseModel):
+    doc_id: str
+    source_path: str
+    chunk_count: int
+    created_at: str
+
+
+class DocumentsResponse(BaseModel):
+    documents: list[DocumentInfoOut]
+    total: int
+
+
+class ConfigResponse(BaseModel):
+    config: dict[str, object]
+
+
+class ReloadResponse(BaseModel):
+    reloaded: bool
