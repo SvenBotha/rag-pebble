@@ -26,7 +26,7 @@ docker-build:
 
 docker-run:
 	docker run --rm -p 8000:8000 \
-	  -e OPENAI_API_KEY \
+	  --env-file .env \
 	  -v $$(pwd)/data:/app/data \
 	  -v $$(pwd)/config.yaml:/app/config.yaml:ro \
 	  pebble:latest

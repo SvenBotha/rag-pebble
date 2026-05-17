@@ -79,13 +79,14 @@ class FaissSqliteStore:
             raise ValueError("n must be positive")
         conn = self._require_conn()
         with self._lock:
-            cur = conn.execute("SELECT next_id FROM id_sequence WHERE name = 'chunk'")
-            row = cur.fetchone()
-            first = int(row[0])
-            conn.execute(
-                "UPDATE id_sequence SET next_id = ? WHERE name = 'chunk'",
-                (first + n,),
+            # Single atomic UPDATE ... RETURNING avoids the read-modify-write
+            # race that occurs when multiple processes share the same database.
+            cur = conn.execute(
+                "UPDATE id_sequence SET next_id = next_id + ? "
+                "WHERE name = 'chunk' RETURNING next_id - ?",
+                (n, n),
             )
+            first = int(cur.fetchone()[0])
             conn.commit()
             return first
 
@@ -141,6 +142,15 @@ class FaissSqliteStore:
             )
             conn.commit()
             index.add_with_ids(vecs, ids)
+
+    def has_document(self, doc_id: str) -> bool:
+        conn = self._require_conn()
+        with self._lock:
+            cur = conn.execute(
+                "SELECT 1 FROM chunks WHERE doc_id = ? AND deleted = 0 LIMIT 1",
+                (doc_id,),
+            )
+            return cur.fetchone() is not None
 
     def delete_document(self, doc_id: str) -> int:
         conn = self._require_conn()

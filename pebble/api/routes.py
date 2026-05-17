@@ -62,6 +62,7 @@ async def ingest(
         ingested_documents=result.ingested_documents,
         ingested_chunks=result.ingested_chunks,
         skipped=result.skipped,
+        already_ingested=result.already_ingested,
     )
 
 

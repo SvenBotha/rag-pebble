@@ -84,7 +84,8 @@ def ingest(
         result = await services.ingest.ingest_paths(paths, on_progress=_progress)
         typer.echo(
             f"ingested {result.ingested_documents} documents "
-            f"({result.ingested_chunks} chunks), {result.skipped} skipped"
+            f"({result.ingested_chunks} chunks), "
+            f"{result.skipped} skipped, {result.already_ingested} already ingested"
         )
 
     # _run_admin uses config from cwd; pass the override here.

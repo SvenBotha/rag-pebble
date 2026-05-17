@@ -23,10 +23,12 @@ from pebble.config.schema import (
 from pebble.core.errors import PebbleError
 from pebble.core.ingestion import (
     UnsupportedFileType,
+    doc_id_for,
     loader_for,
     walk_paths,
 )
 from pebble.core.interfaces import (
+    Chunk,
     Chunker,
     Embedder,
     LLMProvider,
@@ -42,6 +44,7 @@ class IngestResult:
     ingested_documents: int
     ingested_chunks: int
     skipped: int
+    already_ingested: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,12 +68,14 @@ class IngestPipeline:
         store: VectorStore,
         sources: SourcesConfig,
         limits: LimitsConfig,
+        embed_batch_size: int = 64,
     ) -> None:
         self._chunker = chunker
         self._embedder = embedder
         self._store = store
         self._sources = sources
         self._limits = limits
+        self._embed_batch_size = embed_batch_size
 
     async def ingest_paths(
         self,
@@ -78,17 +83,36 @@ class IngestPipeline:
         *,
         on_progress: Callable[[Path, int, int], None] | None = None,
     ) -> IngestResult:
-        """Ingest the documents under `paths` (defaults to sources from config).
+        """Ingest documents under `paths`, batching chunks across docs.
 
-        `on_progress`, when given, is called after each document is added
-        with `(path_just_done, total_docs_so_far, total_chunks_so_far)`.
+        Chunks from multiple documents are accumulated until `embed_batch_size`
+        is reached, then embedded in a single API call. This cuts network
+        round-trips by ~10× versus one call per document.
+
+        `on_progress(path, docs_so_far, chunks_queued_or_done)` fires after
+        each document's chunks are queued, before they may be flushed.
         """
         roots = list(paths) if paths is not None else list(self._sources.paths)
         ingested_documents = 0
         ingested_chunks = 0
         skipped = 0
+        already_ingested = 0
+        pending: list[Chunk] = []
+
+        async def _flush_batch(batch: list[Chunk]) -> int:
+            start_id = self._store.allocate_chunk_ids(len(batch))
+            assigned = [
+                replace(c, chunk_id=start_id + i) for i, c in enumerate(batch)
+            ]
+            vectors = await self._embedder.embed([c.text for c in assigned])
+            self._store.add(assigned, vectors)
+            return len(batch)
 
         for path in walk_paths(roots, self._sources.include, self._sources.exclude):
+            if self._store.has_document(doc_id_for(path)):
+                already_ingested += 1
+                continue
+
             try:
                 loader = loader_for(path)
             except UnsupportedFileType:
@@ -108,18 +132,19 @@ class IngestPipeline:
                     skipped += 1
                     continue
 
-                start_id = self._store.allocate_chunk_ids(len(chunks))
-                chunks = [
-                    replace(chunk, chunk_id=start_id + offset)
-                    for offset, chunk in enumerate(chunks)
-                ]
-                vectors = await self._embedder.embed([c.text for c in chunks])
-                self._store.add(chunks, vectors)
-
+                pending.extend(chunks)
                 ingested_documents += 1
-                ingested_chunks += len(chunks)
                 if on_progress is not None:
-                    on_progress(path, ingested_documents, ingested_chunks)
+                    on_progress(path, ingested_documents, ingested_chunks + len(pending))
+
+                while len(pending) >= self._embed_batch_size:
+                    ingested_chunks += await _flush_batch(
+                        pending[: self._embed_batch_size]
+                    )
+                    del pending[: self._embed_batch_size]
+
+        if pending:
+            ingested_chunks += await _flush_batch(pending)
 
         if ingested_chunks > 0:
             self._store.persist()
@@ -127,6 +152,7 @@ class IngestPipeline:
             ingested_documents=ingested_documents,
             ingested_chunks=ingested_chunks,
             skipped=skipped,
+            already_ingested=already_ingested,
         )
 
 

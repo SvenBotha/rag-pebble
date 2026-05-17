@@ -105,17 +105,34 @@ async def run(corpus: Path, num_queries: int, config_path: Path | None) -> int:
         print(_fmt("docs/sec", round(result.ingested_documents / max(ingest_elapsed, 1e-6), 2)))
         print(_fmt("chunks/sec", round(result.ingested_chunks / max(ingest_elapsed, 1e-6), 1)))
 
-        # ---- Queries -------------------------------------------------------
-        latencies: list[float] = []
+        # ---- Queries (concurrent) ------------------------------------------
+        concurrency = 5  # stay within OpenAI tier-1 TPM limit
         cycle_len = (num_queries + len(SAMPLE_QUERIES) - 1) // len(SAMPLE_QUERIES)
         queries = (SAMPLE_QUERIES * cycle_len)[:num_queries]
+        sem = asyncio.Semaphore(concurrency)
 
+        async def _one(q: str) -> float | BaseException:
+            async with sem:
+                t = time.monotonic()
+                try:
+                    await services.query.ask(q)
+                    return time.monotonic() - t
+                except Exception as exc:  # noqa: BLE001
+                    return exc
+
+        print(
+            f"\n[RSS {rss_mb():.1f} MB] running {num_queries} queries "
+            f"(concurrency={concurrency})"
+        )
         t0 = time.monotonic()
-        for q in queries:
-            t = time.monotonic()
-            await services.query.ask(q)
-            latencies.append(time.monotonic() - t)
+        raw = await asyncio.gather(*[_one(q) for q in queries])
         total_query_elapsed = time.monotonic() - t0
+
+        failures = [r for r in raw if isinstance(r, BaseException)]
+        latencies = [r for r in raw if isinstance(r, float)]
+
+        if failures:
+            print(f"  {len(failures)} queries failed — first: {failures[0]}")
 
         p50 = statistics.median(latencies) * 1000
         if len(latencies) >= 20:
@@ -124,7 +141,7 @@ async def run(corpus: Path, num_queries: int, config_path: Path | None) -> int:
             p95 = max(latencies) * 1000
         mean = statistics.fmean(latencies) * 1000
 
-        print(f"\n[RSS {rss_mb():.1f} MB] {num_queries} queries in {total_query_elapsed:.1f}s")
+        print(f"[RSS {rss_mb():.1f} MB] {len(latencies)} queries ok in {total_query_elapsed:.1f}s")
         print(_fmt("mean latency", round(mean), " ms"))
         print(_fmt("p50 latency", round(p50), " ms"))
         print(_fmt("p95 latency", round(p95), " ms"))
@@ -144,6 +161,9 @@ async def run(corpus: Path, num_queries: int, config_path: Path | None) -> int:
 
 
 def main() -> None:
+    from dotenv import load_dotenv
+    load_dotenv()
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--corpus", type=Path, default=Path("data/corpus"))
     parser.add_argument("--queries", type=int, default=100)

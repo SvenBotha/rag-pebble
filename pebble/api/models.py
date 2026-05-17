@@ -35,6 +35,7 @@ class IngestResponse(BaseModel):
     ingested_documents: int
     ingested_chunks: int
     skipped: int
+    already_ingested: int = 0
 
 
 class DeleteResponse(BaseModel):

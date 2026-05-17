@@ -169,6 +169,10 @@ class VectorStore(Protocol):
         """Top-k nearest neighbours, with tombstoned chunks filtered out."""
         ...
 
+    def has_document(self, doc_id: str) -> bool:
+        """Return True if the store holds at least one live chunk for `doc_id`."""
+        ...
+
     def delete_document(self, doc_id: str) -> int:
         """Soft-delete all chunks for `doc_id`. Returns the count deleted."""
         ...

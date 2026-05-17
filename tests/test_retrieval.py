@@ -151,3 +151,23 @@ def test_add_rejects_unassigned_chunk_id(store: FaissSqliteStore):
 
 def test_search_with_empty_store_returns_empty(store: FaissSqliteStore):
     assert store.search(_rand_vec(0), top_k=5) == []
+
+
+def test_has_document_false_when_empty(store: FaissSqliteStore):
+    assert store.has_document("nonexistent") is False
+
+
+def test_has_document_true_after_add(store: FaissSqliteStore):
+    first = store.allocate_chunk_ids(1)
+    chunk = replace(_chunk("x", doc_id="d1"), chunk_id=first)
+    store.add([chunk], [_rand_vec(0)])
+    assert store.has_document("d1") is True
+    assert store.has_document("other") is False
+
+
+def test_has_document_false_after_delete(store: FaissSqliteStore):
+    first = store.allocate_chunk_ids(1)
+    chunk = replace(_chunk("x", doc_id="d1"), chunk_id=first)
+    store.add([chunk], [_rand_vec(0)])
+    store.delete_document("d1")
+    assert store.has_document("d1") is False

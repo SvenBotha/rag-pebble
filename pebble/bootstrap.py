@@ -72,6 +72,7 @@ def build_services(config: PebbleConfig) -> Services:
         store=store,
         sources=config.sources,
         limits=config.limits,
+        embed_batch_size=config.embeddings.batch_size,
     )
     query = QueryPipeline(
         retriever=retriever,

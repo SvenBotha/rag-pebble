@@ -171,6 +171,60 @@ def test_delete_then_query_returns_no_chunks(client: TestClient, tmp_path: Path)
     assert r.json()["chunks"] == []
 
 
+def test_cross_doc_batching_ingests_all_chunks(
+    tmp_path: Path, stub_embedder: StubEmbedder, stub_llm: StubLLM
+) -> None:
+    """Batching across docs must not drop chunks at batch boundaries."""
+    # Use a tiny batch_size so we exercise the flush-mid-loop path.
+    config = PebbleConfig()
+    store = FaissSqliteStore(
+        index_path=tmp_path / "b.index",
+        metadata_path=tmp_path / "b.meta.sqlite",
+        dim=STUB_DIM,
+    )
+    store.load()
+    from pebble.core.chunking import RecursiveCharacterChunker
+    from pebble.core.pipeline import IngestPipeline
+
+    chunker = RecursiveCharacterChunker(chunk_size=50, overlap=5)
+    ingest = IngestPipeline(
+        chunker=chunker,
+        embedder=stub_embedder,  # type: ignore[arg-type]
+        store=store,
+        sources=config.sources,
+        limits=config.limits,
+        embed_batch_size=3,  # tiny batch — forces mid-loop flushes
+    )
+
+    # Write 5 docs, each producing ~3 chunks at chunk_size=50.
+    for i in range(5):
+        (tmp_path / f"doc{i}.md").write_text(f"word{i} " * 40)
+
+    import asyncio
+    result = asyncio.run(ingest.ingest_paths([tmp_path]))
+    assert result.ingested_documents == 5
+    assert result.ingested_chunks == store.live_count
+    assert result.ingested_chunks > 0
+
+
+def test_reingest_same_path_does_not_duplicate(client: TestClient, tmp_path: Path):
+    src = tmp_path / "a.md"
+    src.write_text("hello world. " * 20)
+    r1 = client.post("/ingest", json={"paths": [str(tmp_path)]})
+    assert r1.status_code == 200
+    chunks_first = r1.json()["ingested_chunks"]
+
+    r2 = client.post("/ingest", json={"paths": [str(tmp_path)]})
+    assert r2.status_code == 200
+    assert r2.json()["ingested_documents"] == 0
+    assert r2.json()["already_ingested"] == 1
+    assert r2.json()["ingested_chunks"] == 0
+
+    # Total chunks in store unchanged after second ingest.
+    r = client.get("/ready")
+    assert r.json()["index_size"] == chunks_first
+
+
 def test_admin_compact_shrinks_after_delete(client: TestClient, tmp_path: Path):
     src = tmp_path / "a.md"
     src.write_text("foo bar. " * 30)
